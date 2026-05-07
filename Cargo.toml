@@ -1,9 +1,9 @@
 [package]
 name = "flex-db"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2024"
 description = "Rust SDK for the Flex DB API — async, typed, minimal dependencies"
-license = "Apache 2.0"
+license = "Apache-2.0"
 repository = "https://github.com/arctics-development-studios/flex-db-rust"
 homepage = "https://flex.arctics.dev/"
 documentation = "https://flex.arctics.dev/docs/sdk-rust/setup"
