@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust -Recurse -Force | ForEach-Object { $_.FullName } | Sort-Object)",
+      "PowerShell(Get-ChildItem -Path C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust | Where-Object { -not $_.PSIsContainer } | Select-Object Name, Length)",
+      "PowerShell(\\(Get-ChildItem -Path \"C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust\" | Where-Object { -not $_.PSIsContainer }\\).Name)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust\" -Directory | Where-Object { $_.Name -ne \".git\" -and $_.Name -ne \".claude\" } | Select-Object Name)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust\" -Recurse -Directory | Where-Object { $_.Name -notmatch \"^\\\\.\" } | ForEach-Object { $_.FullName })",
+      "PowerShell($items = Get-ChildItem -Path \"C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust\" -Recurse -Force; $items | ForEach-Object { if \\($_.PSIsContainer\\) { \"DIR:  $_\" } else { \"FILE: $_\" } } | Sort-Object)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\_\\\\arctics\\\\sdk\\\\flex-db-rust\" -File -Force | ForEach-Object { \"$\\($_.Name\\) - $\\($_.Length\\) bytes\" } | Sort-Object)",
+      "Bash(cargo check *)",
+      "Bash(cargo build *)",
+      "Bash(cargo clippy *)",
+      "Bash(curl -s \"https://crates.io/api/v1/crates/flex-db\")",
+      "Bash(python -m json.tool)",
+      "Bash(findstr /i \"\\\\\"name\\\\\"\\\\|\\\\\"id\\\\\"\\\\|\\\\\"not found\\\\\"\\\\|error\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('errors'\\) or d['crate']['name']\\)\")",
+      "Bash(curl -s \"https://crates.io/api/v1/crates/flex-db-sdk\")"
+    ]
+  }
+}

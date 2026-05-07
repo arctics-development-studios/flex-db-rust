@@ -1,0 +1,22 @@
+[package]
+name = "flex-db"
+version = "2.2.0"
+edition = "2024"
+description = "Rust SDK for the Flex DB API — async, typed, minimal dependencies"
+license = "Apache 2.0"
+repository = "https://github.com/arctics-dev/flex-db-rust"
+homepage = "https://flexdb.io"
+documentation = "https://docs.rs/flex-db"
+readme = "ReadMe.md"
+keywords = ["flexdb", "database", "sdk", "async"]
+categories = ["api-bindings", "database"]
+exclude = ["api_definition.md", ".claude/"]
+
+[dependencies]
+reqwest   = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde     = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
