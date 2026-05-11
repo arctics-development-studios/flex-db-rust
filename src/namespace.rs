@@ -9,7 +9,7 @@ use crate::filter::SearchFilter;
 use crate::types::{
     BulkCreateBody, BulkCreateItem, BulkDeleteBody, BulkSetBody, BulkSetItem, CreateBody,
     GetResponse, HydratedItem, ListPage, ListPageFull, SearchBody, SearchOptions,
-    UpdateFilterResponse, UpdateWhereBody, UpdateWhereOptions, WriteMetadata,
+    UpdateFilterResponse, UpdateOneBody, UpdateWhereBody, UpdateWhereOptions, WriteMetadata,
 };
 
 // ---------------------------------------------------------------------------
@@ -143,10 +143,7 @@ impl Namespace {
         sp: Option<&Map<String, Value>>,
     ) -> Result<String> {
         let metadata = sp.map(|m| WriteMetadata { sp: Some(m.clone()) });
-        let body = serde_json::json!({
-            "data": data,
-            "metadata": metadata,
-        });
+        let body = UpdateOneBody { data, metadata };
         let resp = self
             .req_post(&format!("/v1/updateOne/{key}"))
             .json(&body)

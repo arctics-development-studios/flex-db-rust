@@ -1,9 +1,9 @@
 # Flex DB Rust SDK — API Reference
 
 **Crate:** `flex-db`  
-**Version:** 2.2.0  
+**Version:** 2.3.1  
 **Edition:** Rust 2024  
-**API compatibility:** Flex DB API v2.2.0
+**API compatibility:** Flex DB API v2.3.1
 
 ---
 
@@ -33,7 +33,7 @@
 
 ```toml
 [dependencies]
-flex-db = "2.2.0"
+flex-db = "2.3.1"
 tokio   = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde   = { version = "1", features = ["derive"] }
 ```
@@ -172,8 +172,8 @@ pub async fn update_one<T: Serialize>(
 
 `POST /v1/updateOne/:key` — shallow merge patch on a single object. The object must already exist; returns `ApiErrorCode::NotFound` otherwise.
 
-- `data: None` — leave stored `data` unchanged.
-- `sp: None` — leave stored `metadata.sp` unchanged.
+- `data: None` — field is **omitted from the request** (not sent as `null`), so the server preserves the existing value.
+- `sp: None` — field is **omitted from the request**, so the server preserves the existing `metadata.sp`.
 - If both existing and patch `data` are JSON objects, keys are merged shallowly. Otherwise the existing value is replaced entirely. See [Merge Semantics](#merge-semantics).
 
 Returns the key string.
@@ -548,6 +548,7 @@ match ns.get::<MyType>("key").await {
 | `RateLimitMonth` | `ERR_RATE_LIMIT_MONTH` | 429 |
 | `RequestTooLarge` | `ERR_REQUEST_TOO_LARGE` | 413 |
 | `BulkTooLarge` | `ERR_BULK_TOO_LARGE` | 413 |
+| `InvalidRequest` | `ERR_INVALID_REQUEST` | 400 |
 | `StoreFailed` | `ERR_STORE_FAILED` | 500 |
 | `DeleteFailed` | `ERR_DELETE_FAILED` | 500 |
 | `Internal` | `ERR_INTERNAL` | 500 |

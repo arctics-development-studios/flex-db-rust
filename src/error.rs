@@ -23,6 +23,8 @@ pub enum ApiErrorCode {
     RequestTooLarge,
     #[error("Bulk request exceeds maximum item limit")]
     BulkTooLarge,
+    #[error("Invalid request parameter")]
+    InvalidRequest,
     #[error("Failed to store object")]
     StoreFailed,
     #[error("Failed to delete object")]
@@ -47,6 +49,7 @@ pub(crate) fn code_from_str(s: &str) -> ApiErrorCode {
         "ERR_RATE_LIMIT_MONTH"   => ApiErrorCode::RateLimitMonth,
         "ERR_REQUEST_TOO_LARGE"  => ApiErrorCode::RequestTooLarge,
         "ERR_BULK_TOO_LARGE"     => ApiErrorCode::BulkTooLarge,
+        "ERR_INVALID_REQUEST"    => ApiErrorCode::InvalidRequest,
         "ERR_STORE_FAILED"       => ApiErrorCode::StoreFailed,
         "ERR_DELETE_FAILED"      => ApiErrorCode::DeleteFailed,
         "ERR_INTERNAL"           => ApiErrorCode::Internal,

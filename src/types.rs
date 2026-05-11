@@ -141,6 +141,14 @@ pub(crate) struct SearchOptions<'a> {
 }
 
 #[derive(Serialize)]
+pub(crate) struct UpdateOneBody<'a, T: Serialize> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<&'a T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<WriteMetadata>,
+}
+
+#[derive(Serialize)]
 pub(crate) struct UpdateWhereBody<'a, T: Serialize> {
     pub filters: &'a [crate::filter::SearchFilter],
     #[serde(skip_serializing_if = "Option::is_none")]
