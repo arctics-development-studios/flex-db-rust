@@ -1,36 +1,47 @@
 use serde::Serialize;
 use serde_json::Value;
 
-/// Filter operator for `POST /v1/search` and `POST /v1/update`.
+/// Filter operator used in [`SearchFilter`].
 ///
-/// See Section 9 of the API definition for full semantics.
+/// Operators are sent as lowercase strings in the request body and match
+/// the server's `op` field exactly.
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum FilterOp {
+    /// `field == value`
     Eq,
-    Neq,
+    /// `field != value`
+    Ne,
+    /// `field > value`
     Gt,
+    /// `field >= value`
     Gte,
+    /// `field < value`
     Lt,
+    /// `field <= value`
     Lte,
-    /// Starts-with — `begins_with(field, value)`.
-    #[serde(rename = "sw")]
-    Sw,
-    /// Exists — `attribute_exists(field)`. The value is ignored by the server.
-    #[serde(rename = "ex")]
-    Ex,
+    /// `value` is a substring of `field`
+    Contains,
+    /// `field` starts with `value`
+    StartsWith,
 }
 
-/// A single filter condition. Multiple filters in a request are AND-ed.
+/// A single filter condition for [`Namespace::search`](crate::Namespace::search).
 ///
-/// Build with the convenience constructors or construct directly.
+/// Multiple filters passed to `search` are AND-ed together on the server.
+/// Filters operate on the `sp` (search properties) map stored with each object.
+///
+/// All `sp` keys follow the rules: alphabet `A-Za-z0-9_`, max 64 chars.
+///
+/// # Examples
 ///
 /// ```rust
 /// use flex_db::{SearchFilter, FilterOp};
 ///
 /// let f1 = SearchFilter::eq("status", "active");
-/// let f2 = SearchFilter::new("score", FilterOp::Gte, 10u32);
+/// let f2 = SearchFilter::gte("score", 80u32);
 /// let f3 = SearchFilter::starts_with("label", "prod-");
+/// let f4 = SearchFilter::new("tag", FilterOp::Contains, "rust");
 /// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchFilter {
@@ -56,7 +67,7 @@ impl SearchFilter {
 
     /// `field != value`
     pub fn neq(field: impl Into<String>, value: impl Serialize) -> Self {
-        Self::new(field, FilterOp::Neq, value)
+        Self::new(field, FilterOp::Ne, value)
     }
 
     /// `field > value`
@@ -79,17 +90,13 @@ impl SearchFilter {
         Self::new(field, FilterOp::Lte, value)
     }
 
-    /// `field` starts with `prefix`.
-    pub fn starts_with(field: impl Into<String>, prefix: impl Into<String>) -> Self {
-        Self::new(field, FilterOp::Sw, prefix.into())
+    /// `field` contains `substring` (case-sensitive).
+    pub fn contains(field: impl Into<String>, substring: impl Into<String>) -> Self {
+        Self::new(field, FilterOp::Contains, substring.into())
     }
 
-    /// `field` exists in `metadata.sp`.
-    pub fn exists(field: impl Into<String>) -> Self {
-        Self {
-            field: field.into(),
-            op: FilterOp::Ex,
-            value: Value::Bool(true),
-        }
+    /// `field` starts with `prefix`.
+    pub fn starts_with(field: impl Into<String>, prefix: impl Into<String>) -> Self {
+        Self::new(field, FilterOp::StartsWith, prefix.into())
     }
 }

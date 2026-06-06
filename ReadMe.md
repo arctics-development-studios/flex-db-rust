@@ -1,6 +1,7 @@
 # flex-db
 
-Rust SDK for the [Flex DB](https://flexdb.io) API — a high-performance Database-as-a-Service with automatic storage tiering, search, and bulk operations.
+Rust SDK for the [Flex DB](https://flexdb.io) API — a high-performance
+Database-as-a-Service with automatic storage tiering, search, and bulk operations.
 
 ## Features
 
@@ -14,7 +15,7 @@ Rust SDK for the [Flex DB](https://flexdb.io) API — a high-performance Databas
 
 ```toml
 [dependencies]
-flex-db = "2.2.0"
+flex-db = "2.6"
 tokio   = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde   = { version = "1", features = ["derive"] }
 ```
@@ -36,7 +37,7 @@ async fn main() -> Result<(), flex_db::Error> {
     let client = FlexDb::new("https://api.flexdb.io", "your-jwt-token");
     let ns = client.namespace("users");
 
-    // Create
+    // Create with auto-generated key
     let key = ns.create(&User { name: "Alice".into(), age: 30 }, None).await?;
     println!("created: {key}");
 
@@ -44,8 +45,8 @@ async fn main() -> Result<(), flex_db::Error> {
     let obj = ns.get::<User>(&key).await?;
     println!("{:?}", obj.data);
 
-    // Update (shallow merge)
-    ns.update_one::<serde_json::Value>(&key, None, None).await?;
+    // Replace (upsert at known key)
+    ns.set(&key, &User { name: "Alice".into(), age: 31 }, None).await?;
 
     // Delete
     ns.delete(&key).await?;
@@ -63,6 +64,11 @@ let token = std::env::var("FLEX_DB_TOKEN").expect("FLEX_DB_TOKEN not set");
 let client = FlexDb::new("https://api.flexdb.io", token);
 ```
 
+The token encodes a `db_id` and a 2-bit `perms` field:
+- `1` — READ only
+- `2` — WRITE only
+- `3` — READ + WRITE
+
 ## Namespaces
 
 Every data operation requires a namespace. Objects with the same key in different namespaces are completely independent.
@@ -72,7 +78,13 @@ let users  = client.namespace("users");
 let events = client.namespace("events");
 ```
 
-`Namespace` is `Clone + Send + Sync` — clone freely and pass across tasks.
+`Namespace` is `Clone + Send + Sync` — clone freely and pass across tasks. Namespaces are implicit: they spring into existence on first write and disappear when all their keys are deleted.
+
+## Key Constraints
+
+Caller-supplied keys must use the nanoid alphabet (`A-Za-z0-9_-`) and be between 5 and 21 characters long. Violation returns `Error::Api { code: ApiErrorCode::InvalidKey, .. }`.
+
+Auto-generated keys (from `create` and `bulk_create`) are always valid nanoid(21) strings.
 
 ## CRUD Operations
 
@@ -80,28 +92,26 @@ let events = client.namespace("events");
 // Create (auto-generated key)
 let key = ns.create(&my_struct, None).await?;
 
-// Create with search parameters
+// Create with search properties
 let sp = serde_json::json!({ "status": "active", "score": 42 });
 let key = ns.create(&my_struct, sp.as_object()).await?;
 
 // Read
 let obj: flex_db::GetResponse<MyType> = ns.get(&key).await?;
-println!("warm tier: {}", obj.metadata.w);
+println!("{:?}", obj.data);
 
 // Full replace (upsert)
 ns.set(&key, &updated_struct, None).await?;
 
-// Partial update — only specified fields are changed
-let patch = serde_json::json!({ "score": 99 });
-ns.update_one::<serde_json::Value>(&key, Some(&patch), None).await?;
-
-// Delete (always Ok, even if key absent)
+// Delete (always Ok, even if key is absent — idempotent)
 ns.delete(&key).await?;
 ```
 
 ## Search
 
-Filter objects by their stored search parameters (`metadata.sp`). All filters are AND-ed.
+Filter objects by their stored search properties (`sp`). All filters are AND-ed together.
+
+`sp` fields are attached at write time and are **not** returned by `get`. They exist solely to support search queries.
 
 ```rust
 use flex_db::SearchFilter;
@@ -110,6 +120,7 @@ let filters = vec![
     SearchFilter::eq("status", "active"),
     SearchFilter::gte("score", 10u32),
     SearchFilter::starts_with("label", "prod-"),
+    SearchFilter::contains("tag", "rust"),
 ];
 
 // One page of matching keys
@@ -120,7 +131,7 @@ let all_keys = ns.search_all(&filters, None).await?;
 
 // With full object data
 let hydrated = ns.search_full::<MyType>(&filters, None, None).await?;
-for item in hydrated.keys {
+for item in hydrated.items {
     println!("{}: {:?}", item.key, item.data);
 }
 ```
@@ -135,41 +146,55 @@ for item in hydrated.keys {
 | `SearchFilter::gte(field, value)` | greater than or equal |
 | `SearchFilter::lt(field, value)` | less than |
 | `SearchFilter::lte(field, value)` | less than or equal |
-| `SearchFilter::starts_with(field, prefix)` | starts with |
-| `SearchFilter::exists(field)` | field is present |
+| `SearchFilter::contains(field, substring)` | contains substring |
+| `SearchFilter::starts_with(field, prefix)` | starts with prefix |
 
 ## Listing Objects
 
 ```rust
-// One page
+// One page (keys only)
 let page = ns.list(Some(100), None).await?;
 println!("{} keys, has_more={}", page.keys.len(), page.cursor.is_some());
 
-// All pages collected
+// All keys across all pages
 let all = ns.list_all(None).await?;
 
 // With full object data
 let full = ns.list_full::<MyType>(Some(50), None).await?;
+for item in full.items {
+    println!("{}: {:?}", item.key, item.data);
+}
 ```
 
 ## Bulk Operations
 
-Bulk operations are processed concurrently on the server (up to 50 items per call).
+Bulk operations are processed concurrently on the server. Each operation returns per-item results in the same order as the input.
 
 ```rust
-use flex_db::BulkCreateItem;
+use flex_db::{BulkCreateItem, BulkSetItem};
 
-// Bulk create
+// Bulk create (auto-generated keys)
 let items = vec![
-    BulkCreateItem { data: MyType { .. }, metadata: None },
-    BulkCreateItem { data: MyType { .. }, metadata: None },
+    BulkCreateItem { data: MyType { .. }, sp: None },
+    BulkCreateItem { data: MyType { .. }, sp: None },
 ];
-let keys = ns.bulk_create(&items).await?;
+let result = ns.bulk_create(&items).await?;
+let keys: Vec<String> = result.items
+    .iter()
+    .filter_map(|i| i.id.clone())
+    .collect();
 
-// Bulk upsert
-use flex_db::BulkSetItem;
+// Bulk get
+let fetched = ns.bulk_get::<MyType>(&keys).await?;
+for item in &fetched.items {
+    if item.ok {
+        println!("{}: {:?}", item.key, item.data);
+    }
+}
+
+// Bulk upsert (caller-supplied keys)
 let updates = vec![
-    BulkSetItem { key: keys[0].clone(), data: updated, metadata: None },
+    BulkSetItem { key: keys[0].clone(), data: updated, sp: None },
 ];
 ns.bulk_set(&updates).await?;
 
@@ -177,24 +202,17 @@ ns.bulk_set(&updates).await?;
 ns.bulk_delete(&keys).await?;
 ```
 
-## Filter-Based Bulk Update
+## Write-Buffer Visibility Lag
 
-Update all objects matching a filter in one call (or follow cursors for large sets).
+Writes (create, set, bulk_create, bulk_set) land in L2 cache immediately:
 
-```rust
-let filters = vec![SearchFilter::eq("status", "pending")];
-let patch = serde_json::json!({ "status": "processed" });
-let sp_patch = serde_json::json!({ "status": "processed" });
+| Operation | Visible immediately? |
+|-----------|----------------------|
+| `get` | Yes — reads from L2/L1 |
+| `delete` | Yes — deregisters from write buffer |
+| `list`, `search` | Up to ~60 s lag while write buffer flushes |
 
-// All matching objects, all pages
-let total_updated = ns.update_all_where(
-    &filters,
-    Some(&patch),
-    sp_patch.as_object(),
-    None,
-).await?;
-println!("updated {total_updated} objects");
-```
+This is by design. Objects are committed to DynamoDB by a background flush job every ~60 seconds.
 
 ## Parallel Requests
 
@@ -230,6 +248,9 @@ match ns.get::<MyType>("some-key").await {
     Err(Error::Api { code: ApiErrorCode::RateLimitSecond, .. }) => {
         // back off and retry
     }
+    Err(Error::Api { code: ApiErrorCode::RateLimitMonth, .. }) => {
+        // monthly budget exhausted — surface to caller
+    }
     Err(Error::Api { code, message }) => {
         eprintln!("api error {code:?}: {message}");
     }
@@ -240,7 +261,26 @@ match ns.get::<MyType>("some-key").await {
 }
 ```
 
-Always match on `ApiErrorCode` variants — error messages may change between server versions.
+Always match on `ApiErrorCode` variants — error messages may change between server versions, but codes are stable.
+
+### Error codes
+
+| Variant | HTTP | When |
+|---|---|---|
+| `MissingAuth` | 401 | No `Authorization` header |
+| `Unauthorized` | 401 | Token invalid, expired, or revoked |
+| `PermissionDenied` | 403 | Token lacks READ or WRITE permission |
+| `NotFound` | 404 | Object does not exist at any tier |
+| `MissingFilter` | 400 | Search called with empty `filters` |
+| `InvalidKey` | 400 | Key fails the nanoid constraint |
+| `RateLimitSecond` | 429 | Per-second RPS cap exceeded |
+| `RateLimitMonth` | 429 | Monthly budget exhausted |
+| `RequestTooLarge` | 413 | Object `data` exceeds the size limit |
+| `BulkTooLarge` | 413 | Bulk item count exceeds the limit |
+| `UnprocessableEntity` | 422 | Request body not valid JSON or wrong shape |
+| `Internal` | 500 | Unexpected server error |
+
+Do **not** retry on `4xx` errors. For `429`, surface it to the caller rather than retrying immediately.
 
 ## Pagination
 
@@ -264,23 +304,8 @@ Or use the `_all` helpers to collect everything automatically:
 
 ```rust
 let all_keys = ns.list_all(Some(100)).await?;
+let all_users = ns.list_all_full::<User>(None).await?;
 ```
-
-## Object Metadata
-
-Every object read returns its `ObjectMeta`:
-
-```rust
-let obj = ns.get::<MyType>(&key).await?;
-let meta = &obj.metadata;
-
-println!("warm tier: {}", meta.w);          // true=DynamoDB, false=S3
-println!("size bytes: {}", meta.s);
-println!("last updated: {}", meta.lut);     // Unix timestamp
-println!("search params: {:?}", meta.sp);
-```
-
-Storage tier is assigned automatically based on object size and access frequency. Objects ≤ 50 KB go to DynamoDB (warm); larger objects go to S3 (cold). Hot objects are promoted to a Valkey cache automatically.
 
 ## Health Check
 
@@ -290,7 +315,3 @@ assert_eq!(health.status, "healthy");
 ```
 
 No authentication required.
-
-## Full API Reference
-
-See [sdk_definition.md](sdk_definition.md) for the complete method signatures, all type definitions, and behavioral details.

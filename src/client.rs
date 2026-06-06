@@ -20,7 +20,6 @@ pub(crate) struct FlexDbInner {
 }
 
 impl FlexDbInner {
-    /// Attaches the Authorization header to any request builder.
     pub(crate) fn auth(&self, req: RequestBuilder) -> RequestBuilder {
         req.header("Authorization", format!("Bearer {}", self.token))
     }
@@ -32,16 +31,15 @@ impl FlexDbInner {
 
 /// Top-level Flex DB client.
 ///
-/// Construct once and clone freely — the internal HTTP client and credentials
-/// are wrapped in `Arc`, so cloning is cheap and all clones share the same
-/// connection pool.
+/// Create one instance per application and clone freely — the internal HTTP
+/// connection pool and credentials are wrapped in `Arc`, so cloning is cheap.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use flex_db::FlexDb;
 ///
-/// let client = FlexDb::new("https://api.example.com", "your-jwt-token");
+/// let client = FlexDb::new("https://api.flexdb.io", "your-jwt-token");
 /// let ns = client.namespace("users");
 /// ```
 #[derive(Debug, Clone)]
@@ -52,8 +50,9 @@ pub struct FlexDb {
 impl FlexDb {
     /// Create a new client.
     ///
-    /// - `base_url`: scheme + host with no trailing slash, e.g. `"https://api.flexdb.io"`.
-    /// - `token`: raw JWT (without the `Bearer ` prefix).
+    /// - `base_url` — scheme + host, no trailing slash (`"https://api.flexdb.io"`).
+    /// - `token` — raw RS256 JWT issued by Flex DB, **without** the `Bearer ` prefix.
+    ///   The token encodes a `db_id` and a 2-bit `perms` field (1=READ, 2=WRITE, 3=ALL).
     pub fn new(base_url: impl Into<String>, token: impl Into<String>) -> Self {
         let http = reqwest::Client::new();
         Self {
@@ -65,10 +64,13 @@ impl FlexDb {
         }
     }
 
-    /// Return a [`Namespace`] scoped client for all data operations.
+    /// Return a [`Namespace`] scoped to the given namespace string.
     ///
-    /// The returned `Namespace` shares the same underlying HTTP client and
-    /// credentials — calling `namespace()` is a zero-cost string allocation.
+    /// The returned `Namespace` shares the same underlying connection pool and
+    /// credentials. Calling this method is a zero-cost string allocation.
+    ///
+    /// Namespaces are implicit — they spring into existence on first write and
+    /// disappear when all their keys are deleted.
     pub fn namespace(&self, namespace: impl Into<String>) -> Namespace {
         Namespace {
             inner: Arc::clone(&self.inner),
@@ -76,29 +78,29 @@ impl FlexDb {
         }
     }
 
-    /// `GET /health` — no authentication required.
+    /// `GET /health` — server liveness check. No authentication required.
+    ///
+    /// Returns `Ok` when the server is reachable and healthy.
     pub async fn health(&self) -> Result<HealthResponse> {
         let url = format!("{}/health", self.inner.base_url);
         let resp = self.inner.http.get(&url).send().await?;
-        parse_response(resp).await
+        parse_raw(resp).await
     }
 }
 
 // ---------------------------------------------------------------------------
-// Shared response parser
+// Response parsers
 // ---------------------------------------------------------------------------
 
-/// Deserializes the Flex DB response envelope.
+/// Parses the standard Flex DB v2 response envelope:
+/// `{ "v": "...", "ok": bool, "data": { ... } }`.
 ///
-/// On `ok: false` → `Error::Api { code, message }`.
-/// On `ok: true`  → deserializes the full JSON value into `T` (the `v` and
-/// `ok` fields are silently ignored by serde because none of the response
-/// types use `deny_unknown_fields`).
+/// On `ok: true`  → deserializes the inner `data` object into `T`.
+/// On `ok: false` → returns `Error::Api` with the structured error code.
 pub(crate) async fn parse_response<T: DeserializeOwned>(resp: Response) -> Result<T> {
     let body: Value = resp.json().await?;
 
     match body["ok"].as_bool() {
-        Some(true) | None => Ok(serde_json::from_value(body)?),
         Some(false) => {
             let code = body["error"]["code"]
                 .as_str()
@@ -110,5 +112,12 @@ pub(crate) async fn parse_response<T: DeserializeOwned>(resp: Response) -> Resul
                 .to_owned();
             Err(Error::Api { code, message })
         }
+        _ => Ok(serde_json::from_value(body["data"].clone())?),
     }
+}
+
+/// Parses a raw JSON response without the Flex DB envelope (used for `/health`).
+async fn parse_raw<T: DeserializeOwned>(resp: Response) -> Result<T> {
+    let body: Value = resp.json().await?;
+    Ok(serde_json::from_value(body)?)
 }
